@@ -1,6 +1,6 @@
 interface:
   display_name: "Skill233 连续叙事编剧"
-  short_description: "组合多题材与文风策略，维护人物关系及伏笔，持续创作短剧和超长篇小说"
-  default_prompt: "使用 $skill233-video-script 创作或续写我的故事，组合合适的题材、结构和风格策略，先恢复设定与关系账本，再逐集或逐章生成并校验。"
+  short_description: "创作短剧、电影、视频和小说，组合风格并维护连续剧情"
+  default_prompt: "使用 $skill233-video-script 创作或续写我的短剧、电影、视频或小说，组合题材与风格，按需恢复人物关系和剧情设定。"
 policy:
   allow_implicit_invocation: true

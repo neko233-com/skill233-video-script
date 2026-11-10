@@ -27,11 +27,11 @@ func run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := fmt.Fprintln(out, `story — skill233-video-script continuity helper (Go 1.27)
 
-init       --project DIR --title TITLE --format short-drama|novel
+init       --project DIR --title TITLE --format short-drama|novel|film|bilibili-video|short-video|product-video|scene
 check      --project DIR --batch FILE [--draft FILE]   (no writes)
 apply      --project DIR --batch FILE [--draft FILE]   (accept one unit)
 verify     --project DIR                              (chain and draft hashes)
-context    --project DIR --entities ID,ID --at N [--depth 2 --recent 3 --max-bytes 24000]
+context    --project DIR --entities ID,ID --at N [--depth 2 --recent 3 --max-bytes 24000 --knowledge-scope all|related]
 graph      --project DIR --at N                       (Mermaid to stdout)
 strategies --dir DIR [--dir CUSTOM_DIR]                (validated registry JSON)
 compose    --dir DIR [--dir CUSTOM_DIR] --ids ID,ID     (composed prompt to stdout)
@@ -43,7 +43,7 @@ All commands fail on unknown flags, fields, dangling references, and stale revis
 	command := args[0]
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(out)
-	var project, batchFile, draftFile, title, format, entityIDs, strategyIDs string
+	var project, batchFile, draftFile, title, format, entityIDs, strategyIDs, knowledgeScope string
 	var at, depth, recent, maxBytes int
 	var dirs stringsFlag
 	switch command {
@@ -57,7 +57,7 @@ All commands fail on unknown flags, fields, dangling references, and stale revis
 	switch command {
 	case "init":
 		f.StringVar(&title, "title", "", "作品名")
-		f.StringVar(&format, "format", "", "short-drama 或 novel")
+		f.StringVar(&format, "format", "", "short-drama / novel / film / bilibili-video / short-video / product-video / scene")
 	case "check", "apply":
 		f.StringVar(&batchFile, "batch", "", "增量 JSON")
 		f.StringVar(&draftFile, "draft", "", "正文文件；unit 0 不需要")
@@ -67,6 +67,7 @@ All commands fail on unknown flags, fields, dangling references, and stale revis
 		f.IntVar(&depth, "depth", 2, "关系检索跳数 0..8")
 		f.IntVar(&recent, "recent", 3, "最近单元摘要数量")
 		f.IntVar(&maxBytes, "max-bytes", 24000, "UTF-8 字节预算")
+		f.StringVar(&knowledgeScope, "knowledge-scope", "all", "all 或 related；related 按所选实体限制知情范围")
 	case "graph":
 		f.IntVar(&at, "at", -1, "世界时间 tick")
 	case "compose":
@@ -145,16 +146,19 @@ All commands fail on unknown flags, fields, dangling references, and stale revis
 		}
 		return writeJSON(result)
 	case "context", "graph":
-		s, err := story.Load(project)
-		if err != nil {
-			return err
-		}
 		if command == "context" {
-			data, err := story.Context(s, split(entityIDs), at, depth, recent, maxBytes)
+			if knowledgeScope != "all" && knowledgeScope != "related" {
+				return fmt.Errorf("--knowledge-scope must be all or related")
+			}
+			data, err := story.ContextProjectScoped(project, split(entityIDs), at, depth, recent, maxBytes, knowledgeScope == "related")
 			if err != nil {
 				return err
 			}
 			_, err = out.Write(data)
+			return err
+		}
+		s, err := story.Load(project)
+		if err != nil {
 			return err
 		}
 		graph, err := story.Graph(s, at)

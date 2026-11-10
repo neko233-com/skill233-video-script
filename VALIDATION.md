@@ -1,27 +1,33 @@
 # 验证说明
 
-2026-11-10 实际执行记录。程序使用 Go 1.27.0 / Windows amd64；跨平台结果由 GitHub Actions 验证。没有运行或被阻塞的检查不视为通过。
+2026-11-10 实际执行记录。开发机使用 Go 1.27.0 / Windows amd64；最终用户运行发布包无需 Go。没有运行或被阻塞的检查不视为通过，跨平台 CI 请核对具体提交。
 
 | 验收项 | 结果 |
 | --- | --- |
 | skill-creator `quick_validate.py` | 通过，frontmatter 与 skill 结构合法 |
-| `go test ./...`、`go vet ./...` | 通过，包含安装后独立构建与扩展策略调用 |
-| Go 1.27 三平台 CI | Linux / Windows / macOS 的格式、vet、race tests、构建通过；具体提交见 [workflow runs](https://github.com/neko233-com/skill233-video-script/actions/workflows/test.yml) |
+| `go test ./...`、`go vet ./...` | 开发机通过，包含原生发布包无 Go 的实际调用与扩展策略调用 |
+| Go 1.27 三平台 CI | Linux / Windows / macOS 执行格式、vet、race tests、构建；结果和提交见 [workflow runs](https://github.com/neko233-com/skill233-video-script/actions/workflows/test.yml) |
 | 1000 单元、1000 历史人物、超过百万汉字合成样本 | 冷恢复与正文哈希通过；相关上下文不超过 6000 UTF-8 字节 |
-| Codex CLI 0.163.0-alpha.10.2 原生实测 | 两个独立新会话续写两集均通过，均有读取 skill 的 trace 迹象；最终 unit 2 / revision 3 |
+| Codex CLI 0.163.0-alpha.10.2 原生实测 | 前一版本 `065783a` 的两个独立新会话续写两集均通过，均有读取 skill 的 trace 迹象；最终 unit 2 / revision 3。该结果不能代替新增媒介的模型生成测试 |
 | DSH 0.2.2-rc.1 模型生成实测 | **阻塞**：headless 的 deepseek-official 路由返回 `MISSING_CREDENTIAL`；未伪装为通过 |
 
 ## 离线自动化
 
 - `go test ./...`：真实两阶段账本恢复、CLI 参数到文件产物的完整流程、严格 JSON、状态变更、别名与区间冲突、知情泄漏、因果循环、前置失效、旧断言保护、正文与记录/元数据篡改、并发写入与 dry-run。
-- 策略测试：全部内置与示例扩展逐项可解析、混合继承、显式参数消歧、媒介/视角/表达冲突、缺失依赖、循环与重复 ID；各题材与短剧/小说结构均可组合。
+- 策略测试：全部内置与示例扩展逐项可解析、混合继承、显式参数消歧、媒介/视角/表达冲突、缺失依赖、循环与重复 ID；各题材与七类作品结构可组合。
+- 索引测试：等价结果对照完整回放，覆盖缓存缺失、过期、损坏后的重建、作品隔离、版本时间线、相关知情筛选及完整校验、事件截断提示；完整 `verify` 才审计全部历史，热查询只检查项目及当前头记录。
+- 原生发布包：开发机解压当前平台 ZIP，清空 PATH 后实际执行初始化、应用和索引查询，并检查许可证与 SHA-256。其余平台以相应平台 CI 或实际消费者执行结果为准，交叉编译本身不证明实际运行。
 - 合成长文本：1000 个正文单元与 1000 个无关历史人物的不可变身份，每单元超过 1000 汉字，程序实际计数验证总量超过百万汉字；冷恢复 revision 1001/next unit 1001，逐正文哈希校验，context 不超过 6000 UTF-8 字节。不把无关人物身份塞入上下文，同时测试全局 world 规则不能丢失。此测试直接发布经同一 Apply 校验的记录，再冷读验证，不衡量 1000 次完整 CLI 提交的吞吐。
 - `go vet ./...`；skill-creator 的 `quick_validate.py` 只验证 skill 结构。
 - CI 使用 Go 1.27、Linux / Windows / macOS，执行 vet、race tests 与构建；CI 是否通过以具体 workflow run 为准。
 
+## 索引基准
+
+`go test ./internal/story -run '^$' -bench '^BenchmarkContextHistory1000$' -benchtime=1s -count=1`：Windows amd64、AMD Ryzen 9 9950X、Go 1.27.0，1000 个历史单元和历史人物，相同请求的完整上下文结果逐字段相等。一次本机样本中，热索引平均约 1.02 ms/op，完整验证回放约 196.70 ms/op。基准不包含首次建索引、正文全文审计或模型生成；不同机器、数据和查询会改变结果。提交仍序列化完整状态元数据，成本随元数据规模增长。
+
 ## 真实宿主自动化
 
-运行 `go run ./cmd/skill-eval --host codex --timeout 15m`：在隔离项目的原生 `.agents/skills` 安装相同 skill，两个独立新会话从已有 unit 0 续写两集。第一集接受 revision 2，沈砚保管怀表且不知道编号；第二集接受 revision 3，沈砚在 tick 20 检查表壳后才获知编号，h.number 回收且林岚身份与保管关系延续。两个会话均有 skill 读取迹象，`apply` / `verify` 通过；另外复核了两集工作稿与接受副本的 SHA-256 以及 handoff 的版本/下一单元数字。
+在前一版本 `065783a` 上运行 `go run ./cmd/skill-eval --host codex --timeout 15m`：隔离项目的两个独立新会话从已有 unit 0 续写两集。第一集接受 revision 2，沈砚保管怀表且不知道编号；第二集接受 revision 3，沈砚在 tick 20 检查表壳后才获知编号，h.number 回收且林岚身份与保管关系延续。两个会话均有 skill 读取迹象，`apply` / `verify` 通过；另外复核了两集工作稿与接受副本的 SHA-256 以及 handoff 的版本/下一单元数字。
 
 自动化还覆盖工作稿在接受后被修改、交接版本落后两种失败，防止只检查文件存在就误报成功。首轮实测曾在 8 分钟限时内未完成交接；据此收紧常规续写的产物范围、强调断点以 records 为准，并增加交接验收。复跑的两阶段均完成；15 分钟是每阶段保护上限，不是生成耗时保证。
 

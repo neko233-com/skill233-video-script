@@ -367,8 +367,8 @@ func TestStrategyCompositionAndExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 30 {
-		t.Fatalf("expected 28 builtin + 2 extension strategies, got %d", len(all))
+	if len(all) != 35 {
+		t.Fatalf("expected 33 builtin + 2 extension strategies, got %d", len(all))
 	}
 	for _, id := range sortedKeys(all) {
 		if _, err := Compose(all, []string{id}); err != nil {
@@ -393,7 +393,7 @@ func TestStrategyCompositionAndExtensions(t *testing.T) {
 		if all[genre].Kind != "genre" {
 			continue
 		}
-		for _, medium := range []string{"structure.short-drama", "structure.novel-serial"} {
+		for _, medium := range []string{"structure.short-drama", "structure.novel-serial", "structure.film", "structure.bilibili", "structure.douyin", "structure.product-story", "structure.scene"} {
 			if _, err := Compose(all, []string{genre, medium, "style.restrained"}); err != nil {
 				t.Fatal(genre, medium, err)
 			}

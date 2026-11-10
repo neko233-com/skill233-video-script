@@ -25,12 +25,14 @@ type Packet struct {
 	BoundaryRelations []Relation        `json:"boundary_relations"`
 	Knowledge         []Knowledge       `json:"knowledge"`
 	KnowledgeScope    []string          `json:"knowledge_scope"`
+	KnowledgeSubjects []string          `json:"knowledge_subjects,omitempty"`
 	Events            []Event           `json:"events"`
 	Hooks             []Hook            `json:"hooks"`
 	Recent            []Summary         `json:"recent"`
 	Origins           map[string]Origin `json:"origins"`
 	OmittedEntities   int               `json:"omitted_entity_count"`
 	OmittedOptional   int               `json:"omitted_optional_count"`
+	MoreEvents        bool              `json:"more_events,omitempty"`
 	Notice            string            `json:"notice"`
 }
 

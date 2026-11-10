@@ -12,7 +12,7 @@ story compose --dir /skill/strategies --ids genre.literary,structure.novel-seria
 story compose --dir /skill/strategies --dir /story/strategies --ids genre.cyber-mystery,structure.novel-serial,style.sparse-poetic
 ```
 
-输出提示词应保存到作品目录的 `active-strategy.md`，在 brief/handoff 记录选用 ID。策略变化不自动改变旧正文和正史。参数 `medium` 应与 project.format 一致；Agent 负责检查，compose 不读取项目。
+输出提示词应保存到作品目录的 `active-strategy.md`，在 brief/handoff 记录选用 ID。策略变化不自动改变旧正文和正史。参数 `medium` 应与 project.format 一致；Agent 负责检查，compose 不读取项目。新增媒介选择 `structure.film`、`structure.bilibili`、`structure.douyin`、`structure.product-story` 或 `structure.scene`；对应 project.format 分别为 `film`、`bilibili-video`、`short-video`、`product-video`、`scene`。
 
 ## 扩展文件
 

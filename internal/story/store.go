@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -33,13 +34,13 @@ func recordHash(r Record) string { r.Hash = ""; data, _ := json.Marshal(r); retu
 func projectHash(p Project) string { data, _ := json.Marshal(p); return digest(data) }
 
 func validProject(p Project) bool {
-	return p.Schema == Schema && required(p.Title) && (p.Format == "short-drama" || p.Format == "novel")
+	return p.Schema == Schema && required(p.Title) && slices.Contains([]string{"short-drama", "novel", "film", "bilibili-video", "short-video", "product-video", "scene"}, p.Format)
 }
 
 func Init(dir, title, format string) error {
 	p := Project{Schema: Schema, Title: title, Format: format}
 	if !validProject(p) {
-		return fmt.Errorf("title required; format must be short-drama or novel")
+		return fmt.Errorf("title required; format must be short-drama, novel, film, bilibili-video, short-video, product-video, or scene")
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -79,7 +80,9 @@ func atomicNew(path string, data []byte) error {
 	return nil
 }
 
-func Load(dir string) (*State, error) {
+// loadVerified replays the authoritative records. It is used for a full audit
+// and for rebuilding an absent or stale disposable index.
+func loadVerified(dir string) (*State, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "project.json"))
 	if err != nil {
 		return nil, err
@@ -129,6 +132,15 @@ func Load(dir string) (*State, error) {
 		s.Records = append(s.Records, r)
 	}
 	return s, nil
+}
+
+// Load uses a project-local checkpoint when its project and current head match.
+// Historical edits are detected by Verify, which always replays every record.
+func Load(dir string) (*State, error) {
+	if s, err := loadCheckpoint(dir); err == nil {
+		return s, nil
+	}
+	return loadVerified(dir)
 }
 
 func validHash(s string) bool {
@@ -183,7 +195,7 @@ func Accept(dir string, b Batch, draft []byte) (Result, error) {
 	}
 	f.Close()
 	defer os.Remove(lock)
-	_, r, warnings, err := prepare(dir, b, draft)
+	s, r, warnings, err := prepare(dir, b, draft)
 	if err != nil {
 		return Result{}, err
 	}
@@ -203,11 +215,16 @@ func Accept(dir string, b Batch, draft []byte) (Result, error) {
 	if err := atomicNew(filepath.Join(dir, "records", fmt.Sprintf("%08d.json", r.Revision)), append(data, '\n')); err != nil {
 		return Result{}, err
 	}
+	s.Head = r.Hash
+	s.Records = append(s.Records, r)
+	if err := updateCheckpoint(dir, s, r); err != nil {
+		warnings = append(warnings, "record accepted; project index update failed: "+err.Error())
+	}
 	return Result{r.Revision, b.Unit, r.Hash, warnings}, nil
 }
 
 func Verify(dir string) (Result, error) {
-	s, err := Load(dir)
+	s, err := loadVerified(dir)
 	if err != nil {
 		return Result{}, err
 	}

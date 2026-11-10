@@ -24,7 +24,7 @@ func Copy(source, target string) error {
 	}
 	// An interrupted installation may leave a partial folder. Never delete or replace
 	// an existing user skill; report the path so the user can inspect it.
-	for _, name := range []string{"SKILL.md", "go.mod", "LICENSE", "VALIDATION.md"} {
+	for _, name := range []string{"SKILL.md", "go.mod", "go.sum", "LICENSE", "VALIDATION.md"} {
 		data, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
 			return fmt.Errorf("partial install %s: %w", target, err)
