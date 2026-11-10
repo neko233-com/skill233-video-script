@@ -98,7 +98,8 @@ func Context(s *State, ids []string, at, depth, recent, maxBytes int) ([]byte, e
 	}
 	for _, id := range sortedKeys(s.Facts) {
 		f := s.Facts[id]
-		if f.Locked || neededFacts[id] || (selected[f.Subject] && active(f.From, f.Until, at)) {
+		globalRule := f.Locked && s.Entities[f.Subject].Kind == "world"
+		if globalRule || neededFacts[id] || (selected[f.Subject] && (f.Locked || active(f.From, f.Until, at))) {
 			p.Facts = append(p.Facts, f)
 			addEntity(f.Subject)
 			p.Origins[id] = s.Origins[id]

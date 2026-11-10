@@ -181,6 +181,9 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 	}
 	for n := 1; n <= 1000; n++ {
 		b := Batch{BaseRevision: s.Revision, Unit: n, Summary: fmt.Sprintf("第%d章：连续性合成样本", n), Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: n, Evidence: fmt.Sprintf("第%d章第一段", n)}}}
+		entityID := fmt.Sprintf("c.extra%d", n)
+		b.Entities = []Entity{{ID: entityID, Kind: "character", Name: fmt.Sprintf("路人%d", n), Description: "不属于当前场景的历史人物"}}
+		b.Facts = []Fact{{ID: fmt.Sprintf("f.extra%d", n), Subject: entityID, Key: "identity", Value: "历史人物", From: n, Locked: true, Evidence: "合成正文设定"}}
 		prev := s.Head
 		if _, err = s.Apply(b); err != nil {
 			t.Fatal(n, err)
@@ -211,7 +214,7 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 		t.Fatal("unbounded context", len(data), err)
 	}
 	var p Packet
-	if err = Decode(data, &p); err != nil || p.NextUnit != 1001 {
+	if err = Decode(data, &p); err != nil || p.NextUnit != 1001 || p.OmittedEntities != 1000 {
 		t.Fatal("wrong resume point", err)
 	}
 }
@@ -292,8 +295,8 @@ func TestContextBudgetAndBoundary(t *testing.T) {
 	}
 	var p Packet
 	Decode(data, &p)
-	if len(p.BoundaryRelations) != 0 && len(p.Relations) == 0 {
-		t.Fatal("locked fact entities should complete known endpoints")
+	if len(p.BoundaryRelations) != 1 || len(p.Relations) != 0 {
+		t.Fatal("depth 0 must preserve the boundary without expanding unrelated locked identities")
 	}
 	if _, err = Context(s, []string{"c.lin"}, 0, 2, 1, 512); err == nil || !strings.Contains(err.Error(), "no canon") {
 		t.Fatal("essential canon silently truncated", err)
@@ -313,6 +316,38 @@ func TestStrictJSON(t *testing.T) {
 	var b Batch
 	if err := Decode(append([]byte{0xef, 0xbb, 0xbf}, []byte(`{"unit":0}`)...), &b); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGlobalWorldRuleSurvivesFocusedRetrieval(t *testing.T) {
+	dir := newProject(t)
+	b := seed()
+	b.Entities = append(b.Entities, Entity{ID: "w.rules", Kind: "world", Name: "世界法则", Description: "对所有场景生效"})
+	b.Facts = append(b.Facts, Fact{ID: "f.rule", Subject: "w.rules", Key: "resurrection", Value: "不允许", From: 0, Locked: true, Evidence: "世界设定"})
+	accept(t, dir, b)
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Context(s, []string{"c.shen"}, 0, 0, 0, 24000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p Packet
+	if err = Decode(data, &p); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range p.Facts {
+		if f.ID == "f.rule" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("global world constraint omitted")
+	}
+	if len(p.KnowledgeScope) != 1 || p.KnowledgeScope[0] != "c.shen" {
+		t.Fatal("ambiguous knowledge retrieval scope", p.KnowledgeScope)
 	}
 }
 

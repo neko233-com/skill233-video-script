@@ -41,9 +41,9 @@ go run ./cmd/skill-eval --host dsh
 go run ./cmd/skill-eval --host all --out /absolute/new-evaluation-directory
 ```
 
-前三方依赖为零。离线测试不调用模型；live eval 使用本机已认证 CLI 的当前配置，消耗对应模型配额，未安装或认证失败会报失败，不会降级成模拟通过。测试使用新的隔离目录和项目级 `.agents/skills`，不修改全局技能与认证。每阶段超时可用 `--timeout 8m` 调整。
+第三方依赖为零。离线测试不调用模型；live eval 使用本机已认证 CLI 的当前配置，消耗对应模型配额，未安装或认证失败会报失败，不会降级成模拟通过。测试使用新的隔离目录和项目级 `.agents/skills`，不修改全局技能与认证。每阶段默认超时 15 分钟，可用 `--timeout 20m` 调整。
 
-每宿主有两个独立的新会话：已接受 unit 0 → 写第1集并接受 → 全新进程从文件恢复写第2集。runner 校验宿主读 skill 的日志迹象、实际正文和策略/交接文件、hash verify、unit/revision、不可变身份、保管关系、角色获知时间、带 knower 的断言与伏笔回收。skill 发现证据是宿主 trace 中技能名与 SKILL.md 的读取迹象；不等于对宿主内部路由实现的证明。
+每宿主有两个独立的新会话：已接受 unit 0 → 写第1集并接受 → 全新进程从文件恢复写第2集。runner 校验宿主读 skill 的日志迹象、实际正文和策略文件、工作稿与接受正文的哈希绑定、交接中的 accepted revision/next unit 数字、hash verify、unit/revision、不可变身份、保管关系、角色获知时间、带 knower 的断言与伏笔回收。skill 发现证据是宿主 trace 中技能名与 SKILL.md 的读取迹象；不等于对宿主内部路由实现的证明。
 
 测试产物保留在 stdout 所示目录，报告为 `report.json`，正文绑定在 `work/blobs/`；不保存完整宿主 trace、环境或凭据。离线合成长文本测试验证 1000 单元、超过百万汉字样本的冷恢复、正文哈希与受限上下文，**不验证百万字小说的文学质量或无遗漏的语义一致性**。
 

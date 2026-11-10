@@ -59,7 +59,7 @@ unit 0 的完整实例见 [seed.json](../examples/serial/seed.json)，首集增�
 
 ## 检索、恢复与改稿
 
-`context` 返回 revision、next_unit、目标时间有效事实、全局 locked 事实、相关关系、边界关系、所选角色的获知记录及其事实版本、相关/临近到期伏笔、可追溯 origins 和近期摘要。预算按 UTF-8 **字节**计算，不是模型 token。可裁减事件摘要和较早单元摘要，并报告 `omitted_optional_count`；不会裁减硬设定、相关事实或知情依赖。最近正文通过 recent.draft.sha256 定位到 blobs，再按需读取。
+`context` 返回 revision、next_unit、目标时间有效事实、world 实体的全局 locked 规则、所选实体的 locked 设定、相关关系、边界关系、所选角色的获知记录及其事实版本、相关/临近到期伏笔、可追溯 origins 和近期摘要。不把无关人物的所有不可变身份塞进每个上下文，完整账本校验仍覆盖它们。`knowledge_scope` 标记本次完整检索知情的角色，因事实依赖附带出现的其他人物需补查。预算按 UTF-8 **字节**计算，不是模型 token。可裁减事件摘要和较早单元摘要，并报告 `omitted_optional_count`；不会裁减相关硬设定或知情依赖。最近正文通过 recent.draft.sha256 定位到 blobs，再按需读取。
 
 关系邻域不是全书语义检索：`boundary_relations`、未返回的其他人物和更早历史需要按记录 ID 补读。非当前视角的作者秘密也可能出现，Agent 必须继续应用知情边界。加载时重放元数据，正文仅在 verify 或明确需要时读取；元数据扫描成本随连载增长，并非无限长度或恒定时间数据库。
 

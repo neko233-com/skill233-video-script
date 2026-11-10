@@ -5,13 +5,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,7 +41,7 @@ func main() {
 	root := flag.String("root", ".", "skill 仓库根目录")
 	out := flag.String("out", "", "测试产物目录，必须尚不存在")
 	host := flag.String("host", "", "codex, dsh, all（真实模型调用，会使用配额）")
-	timeout := flag.Duration("timeout", 8*time.Minute, "每个全新会话的超时")
+	timeout := flag.Duration("timeout", 15*time.Minute, "每个全新会话的超时")
 	flag.Parse()
 	if flag.NArg() != 0 || (*host != "codex" && *host != "dsh" && *host != "all") || *timeout <= 0 {
 		fmt.Fprintln(os.Stderr, "usage: go run ./cmd/skill-eval --host codex|dsh|all [--out NEW_DIR]")
@@ -130,7 +133,7 @@ func evaluate(root, work, binary, host string, timeout time.Duration) Report {
 	}
 	for unit := 1; unit <= 2; unit++ {
 		fmt.Printf("%s: starting fresh native skill session for unit %d\n", host, unit)
-		prompt := fmt.Sprintf("使用 $skill233-video-script，按 work/brief.md 要求续写《七号怀表》第%d集（300–600字）。先恢复作品文件、关系与正史，再完成正文、策略组合、增量校验、接受记录及交接。当前 work 已有 unit 0，不要重新初始化。只操作当前工作区。已构建的辅助程序绝对路径为 %s，可直接调用（不需要重新构建）。正文保存 work/drafts/%03d.md。禁止读取凭据、访问外部服务或使用子 Agent。完成后简短汇报实际结果。", unit, binary, unit)
+		prompt := fmt.Sprintf("使用 $skill233-video-script，按 work/brief.md 要求续写《七号怀表》第%d集（300–600字）。先恢复作品文件、关系与正史，再完成正文、策略组合、增量校验、接受记录及交接。当前 work 已有 unit 0，不要重新初始化。只操作当前工作区。已构建的辅助程序绝对路径为 %s，可直接调用（不需要重新构建）。正文保存 work/drafts/%03d.md。增量只登记关键变化与断言，不另写长篇评审报告。handoff.md 保留 accepted revision 与 next unit 两个英文键并更新数字。禁止读取凭据、访问外部服务或使用子 Agent。完成后简短汇报实际结果。", unit, binary, unit)
 		if unit == 2 {
 			prompt += "这是全新的会话，请从文件恢复第一集的结果。沈砚须在 tick 20 亲自检查表壳后才获知编号；回收 h.number，同时保持林岚身份和怀表保管关系。"
 		}
@@ -206,6 +209,9 @@ func invoke(host, dir, prompt string, timeout time.Duration) ([]byte, error) {
 		return stdout.Bytes(), fmt.Errorf("%s host timed out after %s", host, timeout)
 	}
 	if err != nil {
+		if host == "dsh" && bytes.Contains(stdout.Bytes(), []byte(`"code":"MISSING_CREDENTIAL"`)) {
+			return stdout.Bytes(), fmt.Errorf("dsh host refused request: MISSING_CREDENTIAL; configure the active provider using DSH Models (no credentials logged)")
+		}
 		return stdout.Bytes(), fmt.Errorf("%s host process failed: %w (raw diagnostics deliberately not persisted)", host, err)
 	}
 	return stdout.Bytes(), nil
@@ -268,6 +274,29 @@ func grade(project string, unit int) error {
 		data, err := os.ReadFile(filepath.Join(project, path))
 		if err != nil || len(bytes.TrimSpace(data)) == 0 {
 			return fmt.Errorf("missing required artifact: %s", path)
+		}
+	}
+	draft, err := os.ReadFile(filepath.Join(project, "drafts", fmt.Sprintf("%03d.md", unit)))
+	if err != nil {
+		return err
+	}
+	last := s.Records[len(s.Records)-1]
+	if last.Draft == nil || fmt.Sprintf("%x", sha256.Sum256(draft)) != last.Draft.SHA256 {
+		return fmt.Errorf("working draft differs from accepted draft")
+	}
+	handoff, err := os.ReadFile(filepath.Join(project, "handoff.md"))
+	if err != nil {
+		return err
+	}
+	for key, expected := range map[string]int{"accepted revision": unit + 1, "next unit": unit + 1} {
+		pattern := regexp.MustCompile(`(?mi)^[\s*_-]*` + regexp.QuoteMeta(key) + `[*_\s]*:\s*(\d+)\b`)
+		match := pattern.FindSubmatch(handoff)
+		if len(match) != 2 {
+			return fmt.Errorf("handoff missing machine-checkable %s", key)
+		}
+		value, _ := strconv.Atoi(string(match[1]))
+		if value != expected {
+			return fmt.Errorf("stale handoff %s: want %d, got %d", key, expected, value)
 		}
 	}
 	return nil
