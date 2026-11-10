@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode"
 )
 
 func seed() Batch {
@@ -179,6 +180,7 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hanCount := 0
 	for n := 1; n <= 1000; n++ {
 		b := Batch{BaseRevision: s.Revision, Unit: n, Summary: fmt.Sprintf("第%d章：连续性合成样本", n), Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: n, Evidence: fmt.Sprintf("第%d章第一段", n)}}}
 		entityID := fmt.Sprintf("c.extra%d", n)
@@ -188,7 +190,12 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 		if _, err = s.Apply(b); err != nil {
 			t.Fatal(n, err)
 		}
-		draft := []byte(fmt.Sprintf("第%d章\n", n) + strings.Repeat("微雨敲窗。", 200))
+		draft := []byte(fmt.Sprintf("第%d章\n", n) + strings.Repeat("微雨敲窗。", 300))
+		for _, r := range string(draft) {
+			if unicode.Is(unicode.Han, r) {
+				hanCount++
+			}
+		}
 		hash := digest(draft)
 		if err = atomicNew(filepath.Join(dir, "blobs", hash+".md"), draft); err != nil {
 			t.Fatal(err)
@@ -200,6 +207,9 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.Head = r.Hash
+	}
+	if hanCount <= 1_000_000 {
+		t.Fatalf("stress corpus has only %d Han characters", hanCount)
 	}
 	result, err := Verify(dir)
 	if err != nil || result.Revision != 1001 || result.Unit != 1000 {
