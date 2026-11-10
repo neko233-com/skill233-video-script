@@ -1,0 +1,29 @@
+name: Skill validation
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Format
+        shell: pwsh
+        run: |
+          $unformatted = gofmt -l cmd internal
+          if ($unformatted) { throw "Unformatted Go source: $unformatted" }
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: go build ./cmd/story ./cmd/skill-install ./cmd/skill-eval

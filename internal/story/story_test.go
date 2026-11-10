@@ -1,0 +1,388 @@
+package story
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func seed() Batch {
+	return Batch{Unit: 0, Summary: "人物与秘密设定", Entities: []Entity{
+		{ID: "c.lin", Kind: "character", Name: "林岚", Aliases: []string{"阿岚"}, Description: "修复师，习惯先检验证据"},
+		{ID: "c.shen", Kind: "character", Name: "沈砚", Description: "调查员，谨慎守诺"},
+		{ID: "i.watch", Kind: "item", Name: "旧怀表", Description: "不可联网的机械怀表"},
+	}, Facts: []Fact{
+		{ID: "f.name", Subject: "c.lin", Key: "identity", Value: "修复师", From: 0, Locked: true, Evidence: "用户设定"},
+		{ID: "f.owner", Subject: "i.watch", Key: "owner", Value: "c.lin", From: 0, Evidence: "用户设定"},
+		{ID: "f.secret", Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", From: 0, Locked: true, Evidence: "作者真相"},
+	}, Relations: []Relation{{ID: "r.old", From: "c.lin", To: "c.shen", Kind: "同学", Since: 0, Evidence: "用户设定"}},
+		Knowledge: []Knowledge{{ID: "k.lin", Character: "c.lin", FactID: "f.secret", At: 0, Evidence: "前史：林岚检验表壳"}},
+		Hooks:     []Hook{{ID: "h.number", Question: "编号七指向谁？", DueUnit: 2, Entities: []string{"i.watch"}, PlantUnit: 0, Status: "open", Evidence: "用户规划"}}}
+}
+
+func chapter1() Batch {
+	return Batch{BaseRevision: 1, Unit: 1, Summary: "沈砚接收怀表，但尚未知晓编号", Facts: []Fact{{ID: "f.owner2", Subject: "i.watch", Key: "owner", Value: "c.shen", From: 10, Supersedes: "f.owner", Evidence: "1-1 林岚把怀表交给沈砚"}},
+		Events: []Event{{ID: "e.transfer", At: 10, Participants: []string{"c.lin", "c.shen", "i.watch"}, Summary: "林岚交出怀表", Requires: []string{"f.owner2"}, Evidence: "1-1"}},
+		Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: 10, Evidence: "1-1"}, {Subject: "i.watch", Key: "owner", Value: "c.shen", At: 10, Evidence: "1-1"}}}
+}
+
+func chapter2() Batch {
+	return Batch{BaseRevision: 2, Unit: 2, Summary: "沈砚通过检验获知编号，回应旧伏笔", Knowledge: []Knowledge{{ID: "k.shen", Character: "c.shen", FactID: "f.secret", At: 20, Evidence: "2-1 打开表壳"}},
+		Events:      []Event{{ID: "e.open", At: 20, Participants: []string{"c.shen", "i.watch"}, Summary: "检查表壳", Causes: []string{"e.transfer"}, Requires: []string{"f.owner2"}, Evidence: "2-1"}},
+		HookUpdates: []HookUpdate{{ID: "h.number", Status: "paid", Evidence: "2-2 编号对上档案"}},
+		Claims:      []Claim{{Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", At: 20, Knower: "c.shen", Evidence: "2-1 沈砚说出编号"}}}
+}
+
+func newProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := Init(dir, "七号怀表", "short-drama"); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+func accept(t *testing.T, dir string, b Batch) Result {
+	t.Helper()
+	var draft []byte
+	if b.Unit > 0 {
+		draft = []byte(fmt.Sprintf("第%d集：检验怀表，推进调查。", b.Unit))
+	}
+	r, err := Accept(dir, b, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestContinuationAndRecovery(t *testing.T) {
+	dir := newProject(t)
+	accept(t, dir, seed())
+	accept(t, dir, chapter1())
+	accept(t, dir, chapter2())
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Revision != 3 || s.LastUnit != 2 || s.Hooks["h.number"].Status != "paid" {
+		t.Fatalf("bad recovered state: %+v", s)
+	}
+	if active(s.Facts["f.owner"].From, s.Facts["f.owner"].Until, 10) {
+		t.Fatal("old ownership still active")
+	}
+	if _, err = Verify(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := Context(s, []string{"c.shen"}, 20, 2, 3, 24000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p Packet
+	if err = Decode(data, &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.NextUnit != 3 || len(p.Knowledge) != 2 || len(p.Relations) != 1 {
+		t.Fatalf("incomplete context: %s", data)
+	}
+	graph, err := Graph(s, 20)
+	if err != nil || !strings.Contains(graph, "同学") {
+		t.Fatal(graph, err)
+	}
+}
+
+func TestRejectedBatchesLeaveCanonUntouched(t *testing.T) {
+	tests := []struct {
+		name, want string
+		change     func(*Batch)
+	}{
+		{"locked", "cannot supersede", func(b *Batch) {
+			b.Facts = append(b.Facts, Fact{ID: "f.fake", Subject: "c.lin", Key: "identity", Value: "警察", From: 1, Supersedes: "f.name", Evidence: "1-2"})
+		}},
+		{"overlap", "conflicting facts", func(b *Batch) {
+			b.Facts = append(b.Facts, Fact{ID: "f.fake", Subject: "i.watch", Key: "owner", Value: "nobody", From: 10, Evidence: "1-2"})
+		}},
+		{"alias", "alias", func(b *Batch) {
+			b.Entities = append(b.Entities, Entity{ID: "c.other", Kind: "character", Name: "阿岚", Description: "不同的人"})
+		}},
+		{"missing-relation-target", "invalid relation", func(b *Batch) {
+			b.Relations = append(b.Relations, Relation{ID: "r.bad", From: "c.lin", To: "c.missing", Kind: "认识", Since: 1, Evidence: "1-2"})
+		}},
+		{"knowledge-leak", "knowledge leak", func(b *Batch) {
+			b.Claims = append(b.Claims, Claim{Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", At: 10, Knower: "c.shen", Evidence: "1-2 突然知道"})
+		}},
+		{"future-knowledge", "knowledge leak", func(b *Batch) {
+			b.Knowledge = append(b.Knowledge, Knowledge{ID: "k.future", Character: "c.shen", FactID: "f.secret", At: 11, Evidence: "1-3"})
+			b.Claims = append(b.Claims, Claim{Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", At: 10, Knower: "c.shen", Evidence: "1-2"})
+		}},
+		{"wrong-value", "claim conflict", func(b *Batch) { b.Claims[0].Value = "警察" }},
+		{"wrong-time", "unsupported claim", func(b *Batch) { b.Claims[1].At = 9; b.Claims[1].Subject = "i.missing" }},
+		{"causal-cycle", "causal cycle", func(b *Batch) {
+			b.Events[0].Causes = []string{"e.other"}
+			b.Events = append(b.Events, Event{ID: "e.other", At: 10, Participants: []string{"c.lin"}, Summary: "循环", Causes: []string{"e.transfer"}, Evidence: "1-2"})
+		}},
+		{"future-cause", "future cause", func(b *Batch) {
+			b.Events[0].Causes = []string{"e.other"}
+			b.Events = append(b.Events, Event{ID: "e.other", At: 11, Participants: []string{"c.lin"}, Summary: "未来", Evidence: "1-3"})
+		}},
+		{"inactive-prerequisite", "prerequisite", func(b *Batch) { b.Events[0].Requires = []string{"f.owner"} }},
+		{"stale", "stale revision", func(b *Batch) { b.BaseRevision = 0 }},
+		{"skip", "unit must", func(b *Batch) { b.Unit = 3 }},
+		{"no-claims", "claims", func(b *Batch) { b.Claims = nil }},
+		{"retire-without-reason", "hook transition", func(b *Batch) { b.HookUpdates = []HookUpdate{{ID: "h.number", Status: "retired", Evidence: "1-1"}} }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := newProject(t)
+			head := accept(t, dir, seed())
+			b := chapter1()
+			tt.change(&b)
+			_, err := Accept(dir, b, []byte("正文"))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("want %q, got %v", tt.want, err)
+			}
+			s, err := Load(dir)
+			if err != nil || s.Revision != 1 || s.Head != head.Hash {
+				t.Fatal("rejected batch mutated canon", err)
+			}
+		})
+	}
+}
+
+func TestBackdatedChangeCannotInvalidateAcceptedChapter(t *testing.T) {
+	dir := newProject(t)
+	accept(t, dir, seed())
+	accept(t, dir, chapter1())
+	b := chapter2()
+	b.Events = nil
+	b.Facts = []Fact{{ID: "f.owner3", Subject: "i.watch", Key: "owner", Value: "c.lin", From: 11, Supersedes: "f.owner2", Evidence: "回忆"}}
+	// A later claim of ownership in an accepted chapter must survive a new flashback.
+	b1 := chapter1()
+	b1.Claims = append(b1.Claims, Claim{Subject: "i.watch", Key: "owner", Value: "c.shen", At: 15, Evidence: "1-3"})
+	dir2 := newProject(t)
+	accept(t, dir2, seed())
+	accept(t, dir2, b1)
+	_, err := Accept(dir2, b, []byte("倒叙正文"))
+	if err == nil {
+		t.Fatal("backdated contradiction accepted")
+	}
+}
+
+// Synthetic million-character corpus: validates cold recovery and context size,
+// not the literary or semantic quality of a million-character generated novel.
+func TestThousandUnitColdRecovery(t *testing.T) {
+	dir := newProject(t)
+	accept(t, dir, seed())
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 1000; n++ {
+		b := Batch{BaseRevision: s.Revision, Unit: n, Summary: fmt.Sprintf("第%d章：连续性合成样本", n), Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: n, Evidence: fmt.Sprintf("第%d章第一段", n)}}}
+		prev := s.Head
+		if _, err = s.Apply(b); err != nil {
+			t.Fatal(n, err)
+		}
+		draft := []byte(fmt.Sprintf("第%d章\n", n) + strings.Repeat("微雨敲窗。", 200))
+		hash := digest(draft)
+		if err = atomicNew(filepath.Join(dir, "blobs", hash+".md"), draft); err != nil {
+			t.Fatal(err)
+		}
+		r := Record{Schema: Schema, Revision: s.Revision, PrevHash: prev, Batch: b, Draft: &Draft{SHA256: hash}}
+		r.Hash = recordHash(r)
+		data, _ := json.Marshal(r)
+		if err = atomicNew(filepath.Join(dir, "records", fmt.Sprintf("%08d.json", r.Revision)), data); err != nil {
+			t.Fatal(err)
+		}
+		s.Head = r.Hash
+	}
+	result, err := Verify(dir)
+	if err != nil || result.Revision != 1001 || result.Unit != 1000 {
+		t.Fatal(result, err)
+	}
+	recovered, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Context(recovered, []string{"c.lin"}, 1000, 2, 3, 6000)
+	if err != nil || len(data) > 6000 {
+		t.Fatal("unbounded context", len(data), err)
+	}
+	var p Packet
+	if err = Decode(data, &p); err != nil || p.NextUnit != 1001 {
+		t.Fatal("wrong resume point", err)
+	}
+}
+
+func TestHashIntegrityAndDraftBinding(t *testing.T) {
+	for _, mode := range []string{"draft", "record", "project", "gap"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := newProject(t)
+			accept(t, dir, seed())
+			accept(t, dir, chapter1())
+			s, err := Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "draft":
+				err = os.WriteFile(filepath.Join(dir, "blobs", s.Records[1].Draft.SHA256+".md"), []byte("偷偷改正文"), 0600)
+			case "record":
+				path := filepath.Join(dir, "records", "00000002.json")
+				data, _ := os.ReadFile(path)
+				err = os.WriteFile(path, []byte(strings.Replace(string(data), "沈砚接收怀表", "沈砚毁掉怀表", 1)), 0600)
+			case "project":
+				path := filepath.Join(dir, "project.json")
+				data, _ := os.ReadFile(path)
+				err = os.WriteFile(path, []byte(strings.Replace(string(data), "七号怀表", "八号怀表", 1)), 0600)
+			case "gap":
+				err = os.Rename(filepath.Join(dir, "records", "00000002.json"), filepath.Join(dir, "records", "00000003.json"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Verify(dir); err == nil {
+				t.Fatal("tampering not detected")
+			}
+		})
+	}
+}
+
+func TestConcurrentWritersAndDryRun(t *testing.T) {
+	dir := newProject(t)
+	accept(t, dir, seed())
+	b := chapter1()
+	if _, err := Check(dir, b, []byte("草稿")); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := Load(dir)
+	if s.Revision != 1 {
+		t.Fatal("dry run wrote state")
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	success := 0
+	for range 8 {
+		wg.Go(func() {
+			if _, err := Accept(dir, b, []byte("同一草稿")); err == nil {
+				mu.Lock()
+				success++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if success != 1 {
+		t.Fatalf("want one accepted writer, got %d", success)
+	}
+	if _, err := Verify(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestContextBudgetAndBoundary(t *testing.T) {
+	dir := newProject(t)
+	accept(t, dir, seed())
+	s, _ := Load(dir)
+	data, err := Context(s, []string{"c.shen"}, 0, 0, 1, 24000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p Packet
+	Decode(data, &p)
+	if len(p.BoundaryRelations) != 0 && len(p.Relations) == 0 {
+		t.Fatal("locked fact entities should complete known endpoints")
+	}
+	if _, err = Context(s, []string{"c.lin"}, 0, 2, 1, 512); err == nil || !strings.Contains(err.Error(), "no canon") {
+		t.Fatal("essential canon silently truncated", err)
+	}
+	if _, err = Context(s, []string{"missing"}, 0, 2, 1, 24000); err == nil {
+		t.Fatal("unknown entity accepted")
+	}
+}
+
+func TestStrictJSON(t *testing.T) {
+	for _, data := range []string{`{"typo":1}`, `{} {}`, `[]`} {
+		var b Batch
+		if Decode([]byte(data), &b) == nil {
+			t.Fatal("bad JSON accepted", data)
+		}
+	}
+	var b Batch
+	if err := Decode(append([]byte{0xef, 0xbb, 0xbf}, []byte(`{"unit":0}`)...), &b); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStrategyCompositionAndExtensions(t *testing.T) {
+	root := filepath.Join("..", "..")
+	all, err := LoadStrategies([]string{filepath.Join(root, "strategies"), filepath.Join(root, "examples", "strategies")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 30 {
+		t.Fatalf("expected 28 builtin + 2 extension strategies, got %d", len(all))
+	}
+	for _, id := range sortedKeys(all) {
+		if _, err := Compose(all, []string{id}); err != nil {
+			t.Fatal(id, err)
+		}
+	}
+	prompt, err := Compose(all, []string{"genre.cyber-mystery", "structure.novel-serial", "style.sparse-poetic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"genre.suspense", "genre.scifi", "记忆所有权", "sparse-poetic", "medium: novel"} {
+		if !strings.Contains(prompt, s) {
+			t.Fatalf("missing inherited prompt %s", s)
+		}
+	}
+	for _, ids := range [][]string{{"style.lush", "style.restrained"}, {"structure.short-drama", "structure.novel-serial"}, {"style.first-person", "style.cinematic"}, {"genre.missing"}} {
+		if _, err := Compose(all, ids); err == nil {
+			t.Fatal("conflict accepted", ids)
+		}
+	}
+	for _, genre := range sortedKeys(all) {
+		if all[genre].Kind != "genre" {
+			continue
+		}
+		for _, medium := range []string{"structure.short-drama", "structure.novel-serial"} {
+			if _, err := Compose(all, []string{genre, medium, "style.restrained"}); err != nil {
+				t.Fatal(genre, medium, err)
+			}
+		}
+	}
+}
+
+func TestInvalidStrategyGraphs(t *testing.T) {
+	base := Strategy{ID: "style.a", Kind: "style", Title: "a", Prompts: []string{"p"}, Checks: []string{"c"}}
+	for _, mode := range []string{"cycle", "duplicate", "unknown", "conflict"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			a := base
+			b := base
+			b.ID = "style.b"
+			switch mode {
+			case "cycle":
+				a.Extends = []string{b.ID}
+				b.Extends = []string{a.ID}
+			case "duplicate":
+				b.ID = a.ID
+			case "unknown":
+				a.Extends = []string{"style.missing"}
+			case "conflict":
+				a.Conflicts = []string{b.ID}
+				b.Extends = []string{a.ID}
+			}
+			data, _ := json.Marshal([]Strategy{a, b})
+			if err := os.WriteFile(filepath.Join(dir, "custom.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadStrategies([]string{dir}); err == nil {
+				t.Fatal("invalid strategy graph accepted")
+			}
+		})
+	}
+}

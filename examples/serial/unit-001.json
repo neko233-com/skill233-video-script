@@ -1,0 +1,9 @@
+{
+  "base_revision": 1, "unit": 1, "summary": "tick 10：林岚把怀表交给沈砚；沈砚尚未打开表壳，也不知道编号",
+  "facts": [{"id": "f.owner2", "subject": "i.watch", "key": "owner", "value": "c.shen", "from": 10, "supersedes": "f.owner", "evidence": "1-1：林岚明确将怀表交给沈砚保管"}],
+  "events": [{"id": "e.transfer", "at": 10, "participants": ["c.lin", "c.shen", "i.watch"], "summary": "怀表移交保管", "requires": ["f.owner2"], "evidence": "1-1：沈砚接过怀表"}],
+  "claims": [
+    {"subject": "c.lin", "key": "identity", "value": "修复师", "at": 10, "evidence": "1-1：林岚在修复工作台前"},
+    {"subject": "i.watch", "key": "owner", "value": "c.shen", "at": 10, "evidence": "1-1：怀表由沈砚保管"}
+  ]
+}

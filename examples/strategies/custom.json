@@ -1,0 +1,15 @@
+[
+  {
+    "id": "genre.cyber-mystery", "kind": "genre", "title": "用户扩展：赛博悬疑",
+    "extends": ["genre.suspense", "genre.scifi"],
+    "prompts": ["把记忆所有权、身份拷贝与证据可信度绑定；每次技术解谜同时改变人物信任。"],
+    "checks": ["记忆被修改的能力边界是否早已建立，是否留下可验证的痕迹？"]
+  },
+  {
+    "id": "style.sparse-poetic", "kind": "style", "title": "用户扩展：少量意象的克制表达",
+    "extends": ["style.restrained", "style.lush"],
+    "settings": {"expression": "sparse-poetic"},
+    "prompts": ["在行动与对白上采用克制表达，只在场景转折处保留一个与主题有关的意象；此规则明确细化父风格的表达密度。"],
+    "checks": ["父风格的表达差异是否已按本规则统一，是否出现连续堆砌意象？"]
+  }
+]

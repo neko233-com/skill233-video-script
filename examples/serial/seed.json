@@ -1,0 +1,16 @@
+{
+  "base_revision": 0, "unit": 0, "summary": "七号怀表：初始人物、物件、关系、秘密与伏笔",
+  "entities": [
+    {"id": "c.lin", "kind": "character", "name": "林岚", "aliases": ["阿岚"], "description": "修复师；先检验证据再作判断，说话简短"},
+    {"id": "c.shen", "kind": "character", "name": "沈砚", "description": "调查员；谨慎守诺，不凭空知道秘密"},
+    {"id": "i.watch", "kind": "item", "name": "旧怀表", "description": "不可联网的机械怀表，表壳封闭"}
+  ],
+  "facts": [
+    {"id": "f.name", "subject": "c.lin", "key": "identity", "value": "修复师", "from": 0, "locked": true, "evidence": "用户初始设定"},
+    {"id": "f.owner", "subject": "i.watch", "key": "owner", "value": "c.lin", "from": 0, "evidence": "用户初始设定"},
+    {"id": "f.secret", "subject": "i.watch", "key": "secret", "value": "表壳内有编号七", "from": 0, "locked": true, "evidence": "作者真相；初始只有林岚知道"}
+  ],
+  "relations": [{"id": "r.old", "from": "c.lin", "to": "c.shen", "kind": "同学", "since": 0, "evidence": "用户初始设定"}],
+  "knowledge": [{"id": "k.lin", "character": "c.lin", "fact_id": "f.secret", "at": 0, "evidence": "前史：林岚曾检查表壳"}],
+  "hooks": [{"id": "h.number", "question": "编号七指向谁？", "due_unit": 2, "entities": ["i.watch"], "plant_unit": 0, "status": "open", "evidence": "作者规划；尚未对沈砚揭露"}]
+}
