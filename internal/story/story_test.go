@@ -171,26 +171,49 @@ func TestBackdatedChangeCannotInvalidateAcceptedChapter(t *testing.T) {
 	}
 }
 
-// Synthetic million-character corpus: validates cold recovery and context size,
-// not the literary or semantic quality of a million-character generated novel.
-func TestThousandUnitColdRecovery(t *testing.T) {
+// Synthetic drama corpus: tests continuity across 1000 episodes and a real
+// post-recovery accept, not the literary quality of a million-character script.
+func TestThousandEpisodeDramaRecovery(t *testing.T) {
 	dir := newProject(t)
-	accept(t, dir, seed())
+	initial := seed()
+	initial.Hooks[0].DueUnit = 1000
+	accept(t, dir, initial)
 	s, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hanCount := 0
 	for n := 1; n <= 1000; n++ {
-		b := Batch{BaseRevision: s.Revision, Unit: n, Summary: fmt.Sprintf("第%d章：连续性合成样本", n), Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: n, Evidence: fmt.Sprintf("第%d章第一段", n)}}}
+		b := Batch{BaseRevision: s.Revision, Unit: n, Summary: fmt.Sprintf("第%d集：连续性合成样本", n), Claims: []Claim{{Subject: "c.lin", Key: "identity", Value: "修复师", At: n * 10, Evidence: fmt.Sprintf("第%d集第一场", n)}}}
+		if n == 1 {
+			b = chapter1()
+		}
+		if n == 500 {
+			b.Knowledge = []Knowledge{{ID: "k.shen", Character: "c.shen", FactID: "f.secret", At: n * 10, Evidence: "第500集打开表壳"}}
+			b.Events = []Event{{ID: "e.open", At: n * 10, Participants: []string{"c.shen", "i.watch"}, Summary: "打开表壳", Causes: []string{"e.transfer"}, Requires: []string{"f.owner2"}, Evidence: "第500集"}}
+			b.Claims = append(b.Claims, Claim{Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", At: n * 10, Knower: "c.shen", Evidence: "第500集沈砚读出编号"})
+		}
+		if n == 1000 {
+			b.HookUpdates = []HookUpdate{{ID: "h.number", Status: "paid", Evidence: "第1000集编号对上档案"}}
+			b.Claims = append(b.Claims, Claim{Subject: "i.watch", Key: "owner", Value: "c.shen", At: n * 10, Evidence: "第1000集沈砚保管怀表"})
+		}
 		entityID := fmt.Sprintf("c.extra%d", n)
-		b.Entities = []Entity{{ID: entityID, Kind: "character", Name: fmt.Sprintf("路人%d", n), Description: "不属于当前场景的历史人物"}}
-		b.Facts = []Fact{{ID: fmt.Sprintf("f.extra%d", n), Subject: entityID, Key: "identity", Value: "历史人物", From: n, Locked: true, Evidence: "合成正文设定"}}
+		b.Entities = append(b.Entities, Entity{ID: entityID, Kind: "character", Name: fmt.Sprintf("路人%d", n), Description: "不属于当前场景的历史人物"})
+		b.Facts = append(b.Facts, Fact{ID: fmt.Sprintf("f.extra%d", n), Subject: entityID, Key: "identity", Value: "历史人物", From: n, Locked: true, Evidence: "合成正文设定"})
 		prev := s.Head
 		if _, err = s.Apply(b); err != nil {
 			t.Fatal(n, err)
 		}
-		draft := []byte(fmt.Sprintf("第%d章\n", n) + strings.Repeat("微雨敲窗。", 300))
+		scene := fmt.Sprintf("第%d集\n%d-1 修复室 内 夜\n", n, n)
+		switch n {
+		case 1:
+			scene += "林岚将怀表交给沈砚保管。\n"
+		case 500:
+			scene += "沈砚打开怀表，读出表壳里的编号七。\n"
+		case 1000:
+			scene += "沈砚拿着怀表，发现编号七对应的档案。\n"
+		}
+		draft := []byte(scene + strings.Repeat("微雨敲窗。", 300))
 		for _, r := range string(draft) {
 			if unicode.Is(unicode.Han, r) {
 				hanCount++
@@ -215,17 +238,35 @@ func TestThousandUnitColdRecovery(t *testing.T) {
 	if err != nil || result.Revision != 1001 || result.Unit != 1000 {
 		t.Fatal(result, err)
 	}
-	recovered, err := Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := Context(recovered, []string{"c.lin"}, 1000, 2, 3, 6000)
+	data, err := ContextProjectScoped(dir, []string{"c.lin", "c.shen", "i.watch"}, 10000, 2, 3, 6000, true)
 	if err != nil || len(data) > 6000 {
 		t.Fatal("unbounded context", len(data), err)
 	}
 	var p Packet
 	if err = Decode(data, &p); err != nil || p.NextUnit != 1001 || p.OmittedEntities != 1000 {
 		t.Fatal("wrong resume point", err)
+	}
+	if len(p.Relations) != 1 || len(p.Knowledge) != 2 {
+		t.Fatalf("long-term relationship or knowledge missing: %+v", p)
+	}
+	recovered, err := Load(dir)
+	if err != nil || recovered.Hooks["h.number"].Status != "paid" || recovered.Facts["f.owner2"].Value != "c.shen" {
+		t.Fatal("lost long-term canon", err)
+	}
+	next := Batch{BaseRevision: 1001, Unit: 1001, Summary: "跨批次续写", Claims: []Claim{{Subject: "i.watch", Key: "secret", Value: "表壳内有编号七", At: 4999, Knower: "c.shen", Evidence: "错误地提前知晓"}}}
+	if _, err = Check(dir, next, []byte("沈砚说出编号。")); err == nil || !strings.Contains(err.Error(), "knowledge leak") {
+		t.Fatalf("early knowledge should be rejected: %v", err)
+	}
+	if result, err := Verify(dir); err != nil || result.Revision != 1001 {
+		t.Fatalf("rejected batch changed canon: %+v, %v", result, err)
+	}
+	next.Claims[0].At = 10010
+	next.Claims[0].Evidence = "第1001集沈砚记得此前读到的编号"
+	if _, err = Accept(dir, next, []byte("第1001集：沈砚拿着怀表，回忆起表壳里的编号七。")); err != nil {
+		t.Fatal("failed to resume after 1000 episodes", err)
+	}
+	if result, err := Verify(dir); err != nil || result.Revision != 1002 || result.Unit != 1001 {
+		t.Fatalf("post-resume verification failed: %+v, %v", result, err)
 	}
 }
 
