@@ -18,6 +18,8 @@ story compose --dir /skill/strategies --dir /story/strategies --ids genre.cyber-
 
 ## 扩展文件
 
+声音先行的连续短剧可选择 `structure.audio-led-short-drama`，继承 `structure.short-drama` 并保留短剧媒介。与题材、风格组合使用，具体声音稿与分镜交接见 [audio-first.md](audio-first.md)。
+
 在用户作品 `strategies/` 下新增任意 `.json` 文件，根是策略数组。重复 `--dir` 同时加载内置与自定义目录；目录递归扫描，重复 ID 拒绝，不覆盖内置文件。完整示例见 [custom.json](../examples/strategies/custom.json)。
 
 ```json

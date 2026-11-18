@@ -408,8 +408,8 @@ func TestStrategyCompositionAndExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 35 {
-		t.Fatalf("expected 33 builtin + 2 extension strategies, got %d", len(all))
+    if len(all) != 36 {
+        t.Fatalf("expected 34 builtin + 2 extension strategies, got %d", len(all))
 	}
 	for _, id := range sortedKeys(all) {
 		if _, err := Compose(all, []string{id}); err != nil {
